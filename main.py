@@ -10,6 +10,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
 class OrderRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
