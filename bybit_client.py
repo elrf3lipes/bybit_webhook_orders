@@ -15,7 +15,7 @@ class BybitClient:
             api_key=settings.BYBIT_API_KEY,
             api_secret=settings.BYBIT_API_SECRET,
             domain=settings.BYBIT_DOMAIN,
-            tld=settings.BYBIT_TLD,
+            # tld=settings.BYBIT_TLD,
         )
 
     def set_leverage(self, symbol: str, leverage: int = 1) -> None:

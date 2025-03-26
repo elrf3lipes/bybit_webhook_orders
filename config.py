@@ -17,7 +17,7 @@ class Settings:
 
     # New fields for domain and TLD (set them appropriately for testnet)
     BYBIT_DOMAIN: Optional[str] = os.getenv("BYBIT_DOMAIN")
-    BYBIT_TLD: Optional[str] = os.getenv("BYBIT_TLD")  # Can be empty if not needed
+    # BYBIT_TLD: Optional[str] = os.getenv("BYBIT_TLD")  # Can be empty if not needed
 
     @classmethod
     def validate(cls):
