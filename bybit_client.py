@@ -11,9 +11,11 @@ class BybitClient:
     def __init__(self):
         self.client = HTTP(
             testnet=settings.TESTNET,
-            demo=settings.DEMO,
+            # demo=settings.DEMO,
             api_key=settings.BYBIT_API_KEY,
-            api_secret=settings.BYBIT_API_SECRET
+            api_secret=settings.BYBIT_API_SECRET,
+            domain=settings.BYBIT_DOMAIN,
+            tld=settings.BYBIT_TLD,
         )
 
     def set_leverage(self, symbol: str, leverage: int = 1) -> None:
