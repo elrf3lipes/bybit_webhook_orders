@@ -11,7 +11,7 @@ class Settings:
 
     # Check if TESTNET is set in .env and handle it as boolean
     TESTNET: bool = os.getenv("TESTNET", "True").lower() in ["true", "1", "t", "y", "yes"]
-    DEMO: bool = os.getenv("DEMO", "True").lower() in ["true", "1", "t", "y", "yes"]  # New
+    # DEMO: bool = os.getenv("DEMO", "True").lower() in ["true", "1", "t", "y", "yes"]  # New
 
     @classmethod
     def validate(cls):

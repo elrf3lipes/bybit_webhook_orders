@@ -11,7 +11,7 @@ class BybitClient:
     def __init__(self):
         self.client = HTTP(
             testnet=settings.TESTNET,
-            demo=settings.DEMO,
+            # demo=settings.DEMO,
             api_key=settings.BYBIT_API_KEY,
             api_secret=settings.BYBIT_API_SECRET
         )
