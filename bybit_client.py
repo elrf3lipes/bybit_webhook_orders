@@ -14,7 +14,7 @@ class BybitClient:
             # demo=settings.DEMO,
             api_key=settings.BYBIT_API_KEY,
             api_secret=settings.BYBIT_API_SECRET,
-            domain=settings.BYBIT_DOMAIN,
+            domain=settings.BYBIT_DOMAIN
             # tld=settings.BYBIT_TLD,
         )
 
