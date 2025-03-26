@@ -4,12 +4,14 @@ from config import settings
 
 OrderType = Literal["Market", "Limit"]
 OrderSide = Literal["Buy", "Sell"]
-PositionSide = Literal["Both"]  #Only 'Both' is supported in Bybit's futures trading
+PositionSide = Literal["Both"]  # Only 'Both' is supported in Bybit's futures trading
+
 
 class BybitClient:
     def __init__(self):
         self.client = HTTP(
             testnet=settings.TESTNET,
+            demo=settings.DEMO,
             api_key=settings.BYBIT_API_KEY,
             api_secret=settings.BYBIT_API_SECRET
         )
@@ -17,7 +19,7 @@ class BybitClient:
     def set_leverage(self, symbol: str, leverage: int = 1) -> None:
         """
         Set leverage
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
             leverage: Leverage (1-100)
@@ -37,10 +39,10 @@ class BybitClient:
     def get_symbol_info(self, symbol: str) -> dict:
         """
         Get trading information for a symbol
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
-            
+
         Returns:
             Symbol information
         """
@@ -56,127 +58,61 @@ class BybitClient:
             raise Exception(f"Failed to get symbol info: {str(e)}")
 
     def place_order(
-        self,
-        symbol: str,
-        side: OrderSide,
-        order_type: OrderType,
-        qty: float,
-        leverage: int = 1,
-        price: Optional[float] = None,
-        position_side: PositionSide = "Both",
-        reduce_only: bool = False
+            self,
+            symbol: str,
+            side: OrderSide,
+            order_type: OrderType,
+            qty: float,
+            leverage: int = 1,
+            price: Optional[float] = None,
+            position_side: PositionSide = "Both",
+            reduce_only: bool = False
     ) -> dict:
-        # Get symbol information and check the minimum order quantity
-        symbol_info = self.get_symbol_info(symbol)
-        min_qty = float(symbol_info.get("minOrderQty", "0"))
-        
-        if qty < min_qty:
-            raise ValueError(
-                f"Order quantity ({qty}) is less than minimum allowed quantity ({min_qty}) for {symbol}"
-            )
         """
         Place an order
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
             side: Order side (Buy/Sell)
             order_type: Order type (Market/Limit)
             qty: Quantity to trade
             price: Price for limit orders (required only for Limit orders)
-        
+            leverage: Leverage to use
+            reduce_only: If true, only reduce the position
+
         Returns:
             Order response
         """
+        # Get symbol information and check the minimum order quantity
+        symbol_info = self.get_symbol_info(symbol)
+        min_qty = float(symbol_info.get("minOrderQty", "0"))
+        if qty < min_qty:
+            raise ValueError(
+                f"Order quantity ({qty}) is less than minimum allowed quantity ({min_qty}) for {symbol}"
+            )
+
         try:
             # Set leverage
             self.set_leverage(symbol, leverage)
 
-            # Order parameters
+            # Build order parameters
             params = {
                 "category": "linear",
                 "symbol": symbol,
                 "side": side,
                 "orderType": order_type,
                 "qty": str(qty),
-                "positionIdx": 0,  # Both: 0
+                "positionIdx": 0,  # One-way mode uses 0 for "Both"
                 "reduceOnly": reduce_only
             }
 
-            # Set price for limit orders
+            # If this is a Limit order, ensure a price is provided
             if order_type == "Limit":
                 if price is None:
                     raise ValueError("Limit order requires a price")
                 params["price"] = str(price)
 
-            # Execute the order
-            response = self.client.place_order(**params)
-            return response
-
-        except Exception as e:
-            raise Exception(f"Failed to place order: {str(e)}")
-
-        def place_order(
-        self,
-        symbol: str,
-        int_side: int,
-        qty: float,
-        leverage: int = 1,
-        position_side: PositionSide = "Both",
-        reduce_only: bool = False
-    ) -> dict:
-        # Get symbol information and check the minimum order quantity
-        symbol_info = self.get_symbol_info(symbol)
-        min_qty = float(symbol_info.get("minOrderQty", "0"))
-        
-        if qty < min_qty:
-            raise ValueError(
-                f"Order quantity ({qty}) is less than minimum allowed quantity ({min_qty}) for {symbol}"
-            )
-        """
-        Place an order
-        
-        Args:
-            symbol: Trading pair (e.g., BTCUSDT)
-            side: Order side (Buy/Sell)
-            order_type: Order type (Market/Limit)
-            qty: Quantity to trade
-            price: Price for limit orders (required only for Limit orders)
-        
-        Returns:
-            Order response
-        """
-        try:
-            # Set leverage
-            self.set_leverage(symbol, leverage)
-
-            if int_side == 1:
-                side = OrderSide.Buy
-            elif int_side == -1:
-                side = OrderSide.Sell
-            elif int_side == 0:
-                return self.close_position(symbol)
-            else:
-                raise ValueError("Invalid side value")
-
-
-            # Order parameters
-            params = {
-                "category": "linear",
-                "symbol": symbol,
-                "side": side,
-                "orderType": OrderType.Market,
-                "qty": str(qty),
-                "positionIdx": 0,  # Both: 0
-                "reduceOnly": reduce_only
-            }
-
-            # Set price for limit orders
-            if order_type == "Limit":
-                if price is None:
-                    raise ValueError("Limit order requires a price")
-                params["price"] = str(price)
-
-            # Execute the order
+            # Execute the order using Bybit's API
             response = self.client.place_order(**params)
             return response
 
@@ -186,11 +122,11 @@ class BybitClient:
     def cancel_order(self, order_id: str, symbol: str) -> dict:
         """
         Cancel an order
-        
+
         Args:
             order_id: The ID of the order to cancel
             symbol: Trading pair (e.g., BTCUSDT)
-            
+
         Returns:
             Cancel result response
         """
@@ -207,10 +143,10 @@ class BybitClient:
     def cancel_all_orders(self, symbol: str) -> dict:
         """
         Cancel all orders for a given symbol
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
-            
+
         Returns:
             Cancel all orders result response
         """
@@ -226,10 +162,10 @@ class BybitClient:
     def get_position(self, symbol: str) -> dict:
         """
         Get current position information
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
-            
+
         Returns:
             Position information
         """
@@ -247,10 +183,10 @@ class BybitClient:
     def close_position(self, symbol: str) -> dict:
         """
         Close a position
-        
+
         Args:
             symbol: Trading pair (e.g., BTCUSDT)
-            
+
         Returns:
             Close position result response
         """
@@ -260,10 +196,10 @@ class BybitClient:
             if not position or float(position.get("size", "0")) == 0:
                 raise ValueError(f"No open position for {symbol}")
 
-            # Create an order for the opposite side of the position
+            # Determine the opposite side for closing the position
             side = "Sell" if position["side"] == "Buy" else "Buy"
-            
-            # Close with a market order (use current leverage)
+
+            # Create order parameters to close the position
             params = {
                 "category": "linear",
                 "symbol": symbol,
@@ -273,7 +209,7 @@ class BybitClient:
                 "positionIdx": 0,
                 "reduceOnly": True
             }
-            
+
             response = self.client.place_order(**params)
             return response
 
@@ -283,7 +219,7 @@ class BybitClient:
     def get_wallet_balance(self) -> dict:
         """
         Get wallet balance
-        
+
         Returns:
             Balance information
         """

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, constr
+from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from bybit_client import BybitClient, OrderType, OrderSide
 from config import settings
@@ -10,7 +10,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-
+# Define the data model for order requests
 class OrderRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
@@ -20,20 +20,11 @@ class OrderRequest(BaseModel):
     leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialization process during application startup"""
-    try:
-        settings.validate()
-    except ValueError as e:
-        raise RuntimeError(f"Configuration error: {str(e)}")
-
+# Endpoint for direct order placement (can be used by a frontend)
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
     try:
         client = BybitClient()
-        
-        # Execute the order
         result = client.place_order(
             symbol=order.symbol,
             side=order.side,
@@ -43,12 +34,27 @@ async def create_order(order: OrderRequest):
             leverage=order.leverage,
             reduce_only=order.reduce_only
         )
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        return {"status": "success", "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Webhook endpoint for TradingView alerts
+@app.post("/webhook", description="Webhook endpoint to execute orders from TradingView")
+async def webhook_order(order: OrderRequest):
+    try:
+        client = BybitClient()
+        result = client.place_order(
+            symbol=order.symbol,
+            side=order.side,
+            order_type=order.order_type,
+            qty=order.quantity,
+            price=order.price,
+            leverage=order.leverage,
+            reduce_only=order.reduce_only
+        )
+        return {"status": "success", "data": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -68,16 +74,8 @@ class PositionRequest(BaseModel):
 async def cancel_order(request: CancelOrderRequest):
     try:
         client = BybitClient()
-        result = client.cancel_order(
-            order_id=request.order_id,
-            symbol=request.symbol
-        )
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        result = client.cancel_order(order_id=request.order_id, symbol=request.symbol)
+        return {"status": "success", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -85,15 +83,8 @@ async def cancel_order(request: CancelOrderRequest):
 async def cancel_all_orders(request: CancelAllOrdersRequest):
     try:
         client = BybitClient()
-        result = client.cancel_all_orders(
-            symbol=request.symbol
-        )
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        result = client.cancel_all_orders(symbol=request.symbol)
+        return {"status": "success", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -102,12 +93,7 @@ async def get_position(symbol: str):
     try:
         client = BybitClient()
         result = client.get_position(symbol)
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        return {"status": "success", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -116,12 +102,7 @@ async def close_position(request: PositionRequest):
     try:
         client = BybitClient()
         result = client.close_position(request.symbol)
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        return {"status": "success", "data": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -132,12 +113,7 @@ async def get_balance():
     try:
         client = BybitClient()
         result = client.get_wallet_balance()
-        
-        return {
-            "status": "success",
-            "data": result
-        }
-    
+        return {"status": "success", "data": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
