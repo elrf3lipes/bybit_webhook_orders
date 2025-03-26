@@ -7,10 +7,11 @@ from config import settings
 app = FastAPI(
     title="Bybit Trade Bot API",
     description="API server for executing orders on Bybit exchange",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# Define the data model for order requests
+# Define the data model for order requests.
+# Allow extra fields so that any additional data from TradingView (like trigger_time, max_lag, strategy_id) is ignored.
 class OrderRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
@@ -19,6 +20,9 @@ class OrderRequest(BaseModel):
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
     leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
+
+    class Config:
+        extra = "allow"  # This permits additional fields from TradingView without error
 
 # Endpoint for direct order placement (can be used by a frontend)
 @app.post("/order", description="Execute an order")
