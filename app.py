@@ -1,14 +1,30 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from bybit_client import BybitClient, OrderType, OrderSide
 from config import settings
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 app = FastAPI(
     title="Bybit Trade Bot API",
     description="API server for executing orders on Bybit exchange",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        settings.validate()
+        logging.info("Application startup complete. Settings validated.")
+    except ValueError as e:
+        logging.error(f"Configuration error during startup: {e}")
+        raise RuntimeError(f"Configuration error: {str(e)}")
 
 # Define the data model for order requests.
 # Allow extra fields so that any additional data from TradingView (like trigger_time, max_lag, strategy_id) is ignored.
@@ -22,11 +38,12 @@ class OrderRequest(BaseModel):
     reduce_only: bool = Field(False, description="True if only reducing position")
 
     class Config:
-        extra = "allow"  # This permits additional fields from TradingView without error
+        extra = "allow"  # Allow extra fields from TradingView
 
-# Endpoint for direct order placement (can be used by a frontend)
+# Endpoint for direct order placement
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
+    logging.info(f"Received order request: {order.dict()}")
     try:
         client = BybitClient()
         result = client.place_order(
@@ -38,15 +55,19 @@ async def create_order(order: OrderRequest):
             leverage=order.leverage,
             reduce_only=order.reduce_only
         )
+        logging.info(f"Order placed successfully: {result}")
         return {"status": "success", "data": result}
     except ValueError as e:
+        logging.error(f"Order validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logging.error(f"Error placing order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Webhook endpoint for TradingView alerts
 @app.post("/webhook", description="Webhook endpoint to execute orders from TradingView")
 async def webhook_order(order: OrderRequest):
+    logging.info(f"Webhook alert received: {order.dict()}")
     try:
         client = BybitClient()
         result = client.place_order(
@@ -58,10 +79,13 @@ async def webhook_order(order: OrderRequest):
             leverage=order.leverage,
             reduce_only=order.reduce_only
         )
+        logging.info(f"Webhook order placed successfully: {result}")
         return {"status": "success", "data": result}
     except ValueError as e:
+        logging.error(f"Webhook order validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logging.error(f"Error processing webhook order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 class CancelOrderRequest(BaseModel):
@@ -76,49 +100,65 @@ class PositionRequest(BaseModel):
 
 @app.post("/cancel-order", description="Cancel a specific order")
 async def cancel_order(request: CancelOrderRequest):
+    logging.info(f"Cancel order request received: {request.dict()}")
     try:
         client = BybitClient()
         result = client.cancel_order(order_id=request.order_id, symbol=request.symbol)
+        logging.info(f"Order cancelled: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
+        logging.error(f"Error cancelling order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/cancel-all-orders", description="Cancel all orders for the specified symbol")
 async def cancel_all_orders(request: CancelAllOrdersRequest):
+    logging.info(f"Cancel all orders request received: {request.dict()}")
     try:
         client = BybitClient()
         result = client.cancel_all_orders(symbol=request.symbol)
+        logging.info(f"All orders cancelled for {request.symbol}: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
+        logging.error(f"Error cancelling all orders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/position/{symbol}", description="Get current position information")
 async def get_position(symbol: str):
+    logging.info(f"Get position request received for symbol: {symbol}")
     try:
         client = BybitClient()
         result = client.get_position(symbol)
+        logging.info(f"Position for {symbol}: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
+        logging.error(f"Error fetching position for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/close-position", description="Close a position")
 async def close_position(request: PositionRequest):
+    logging.info(f"Close position request received for symbol: {request.symbol}")
     try:
         client = BybitClient()
         result = client.close_position(request.symbol)
+        logging.info(f"Position closed for {request.symbol}: {result}")
         return {"status": "success", "data": result}
     except ValueError as e:
+        logging.error(f"Error closing position for {request.symbol}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logging.error(f"Error closing position for {request.symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/balance", description="Get wallet balance")
 async def get_balance():
+    logging.info("Get wallet balance request received.")
     try:
         client = BybitClient()
         result = client.get_wallet_balance()
+        logging.info(f"Wallet balance: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
+        logging.error(f"Error fetching wallet balance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
