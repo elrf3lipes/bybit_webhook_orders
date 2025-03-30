@@ -6,14 +6,14 @@ OrderType = Literal["Market", "Limit"]
 OrderSide = Literal["Buy", "Sell"]
 PositionSide = Literal["Both"]  # Only 'Both' is supported in Bybit's futures trading
 
-
 class BybitClient:
     def __init__(self):
         self.client = HTTP(
             testnet=settings.TESTNET,
-            demo=settings.DEMO,
             api_key=settings.BYBIT_API_KEY,
             api_secret=settings.BYBIT_API_SECRET,
+            domain=settings.BYBIT_DOMAIN,  # Should be 'api-demo-testnet.bybit.com' for testnet
+            tld=settings.BYBIT_TLD        # Typically empty unless needed
         )
 
     def set_leverage(self, symbol: str, leverage: int = 1) -> None:

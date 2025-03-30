@@ -1,11 +1,11 @@
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from bybit_client import BybitClient, OrderType, OrderSide
 from config import settings
 
-# Configure logging
+# Configure logging to output timestamps and log levels
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
@@ -17,6 +17,7 @@ app = FastAPI(
     version="2.0.0"
 )
 
+
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -26,8 +27,8 @@ async def startup_event():
         logging.error(f"Configuration error during startup: {e}")
         raise RuntimeError(f"Configuration error: {str(e)}")
 
-# Define the data model for order requests.
-# Allow extra fields so that any additional data from TradingView (like trigger_time, max_lag, strategy_id) is ignored.
+
+# Pydantic model for order requests. Extra fields from TradingView alerts are allowed.
 class OrderRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
@@ -38,9 +39,10 @@ class OrderRequest(BaseModel):
     reduce_only: bool = Field(False, description="True if only reducing position")
 
     class Config:
-        extra = "allow"  # Allow extra fields from TradingView
+        extra = "allow"
 
-# Endpoint for direct order placement
+
+# Endpoint for direct order placement (for frontends or manual testing)
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
     logging.info(f"Received order request: {order.dict()}")
@@ -64,11 +66,18 @@ async def create_order(order: OrderRequest):
         logging.error(f"Error placing order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Webhook endpoint for TradingView alerts
+
+# Webhook endpoint to process TradingView alerts
 @app.post("/webhook", description="Webhook endpoint to execute orders from TradingView")
-async def webhook_order(order: OrderRequest):
-    logging.info(f"Webhook alert received: {order.dict()}")
+async def webhook_order(request: Request):
+    raw_body = await request.body()
+    decoded_body = raw_body.decode("utf-8")
+    logging.info(f"Raw webhook payload: {decoded_body}")
+
     try:
+        order = OrderRequest.parse_raw(raw_body)
+        logging.info(f"Parsed webhook order: {order.dict()}")
+
         client = BybitClient()
         result = client.place_order(
             symbol=order.symbol,
@@ -82,25 +91,32 @@ async def webhook_order(order: OrderRequest):
         logging.info(f"Webhook order placed successfully: {result}")
         return {"status": "success", "data": result}
     except ValueError as e:
-        logging.error(f"Webhook order validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logging.error(f"Webhook validation error: {e}")
+        raise HTTPException(status_code=400, detail=f"Validation error: {e}")
     except Exception as e:
         logging.error(f"Error processing webhook order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# Request model for canceling a specific order
 class CancelOrderRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     order_id: str = Field(..., description="ID of the order to cancel")
 
+
+# Request model for canceling all orders
 class CancelAllOrdersRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
 
+
+# Request model for fetching position or closing a position
 class PositionRequest(BaseModel):
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
 
+
 @app.post("/cancel-order", description="Cancel a specific order")
 async def cancel_order(request: CancelOrderRequest):
-    logging.info(f"Cancel order request received: {request.dict()}")
+    logging.info(f"Cancel order request: {request.dict()}")
     try:
         client = BybitClient()
         result = client.cancel_order(order_id=request.order_id, symbol=request.symbol)
@@ -110,9 +126,10 @@ async def cancel_order(request: CancelOrderRequest):
         logging.error(f"Error cancelling order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/cancel-all-orders", description="Cancel all orders for the specified symbol")
 async def cancel_all_orders(request: CancelAllOrdersRequest):
-    logging.info(f"Cancel all orders request received: {request.dict()}")
+    logging.info(f"Cancel all orders request: {request.dict()}")
     try:
         client = BybitClient()
         result = client.cancel_all_orders(symbol=request.symbol)
@@ -122,9 +139,10 @@ async def cancel_all_orders(request: CancelAllOrdersRequest):
         logging.error(f"Error cancelling all orders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/position/{symbol}", description="Get current position information")
 async def get_position(symbol: str):
-    logging.info(f"Get position request received for symbol: {symbol}")
+    logging.info(f"Get position request for symbol: {symbol}")
     try:
         client = BybitClient()
         result = client.get_position(symbol)
@@ -134,9 +152,10 @@ async def get_position(symbol: str):
         logging.error(f"Error fetching position for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/close-position", description="Close a position")
 async def close_position(request: PositionRequest):
-    logging.info(f"Close position request received for symbol: {request.symbol}")
+    logging.info(f"Close position request for symbol: {request.symbol}")
     try:
         client = BybitClient()
         result = client.close_position(request.symbol)
@@ -148,6 +167,7 @@ async def close_position(request: PositionRequest):
     except Exception as e:
         logging.error(f"Error closing position for {request.symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/balance", description="Get wallet balance")
 async def get_balance():
@@ -161,6 +181,8 @@ async def get_balance():
         logging.error(f"Error fetching wallet balance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
