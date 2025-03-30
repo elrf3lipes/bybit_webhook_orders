@@ -53,7 +53,9 @@ class BybitClient:
             leverage: int = 1,
             price: Optional[float] = None,
             position_side: PositionSide = "Both",
-            reduce_only: bool = False
+            reduce_only: bool = False,
+            stop_loss: Optional[float] = None,
+            take_profit: Optional[float] = None
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
@@ -77,6 +79,13 @@ class BybitClient:
                 if price is None:
                     raise ValueError("Limit order requires a price")
                 params["price"] = str(price)
+
+            # Incorporate stop loss and take profit if provided
+            if stop_loss is not None:
+                params["stopLoss"] = str(stop_loss)
+            if take_profit is not None:
+                params["takeProfit"] = str(take_profit)
+
             response = self.client.place_order(**params)
             return response
         except Exception as e:

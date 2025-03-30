@@ -37,6 +37,8 @@ class OrderRequest(BaseModel):
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
     leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
+    stop_loss: Optional[float] = Field(None, description="Stop loss price")
+    take_profit: Optional[float] = Field(None, description="Take profit price")
 
     class Config:
         extra = "allow"
@@ -55,7 +57,9 @@ async def create_order(order: OrderRequest):
             qty=order.quantity,
             price=order.price,
             leverage=order.leverage,
-            reduce_only=order.reduce_only
+            reduce_only=order.reduce_only,
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit
         )
         logging.info(f"Order placed successfully: {result}")
         return {"status": "success", "data": result}
@@ -86,7 +90,9 @@ async def webhook_order(request: Request):
             qty=order.quantity,
             price=order.price,
             leverage=order.leverage,
-            reduce_only=order.reduce_only
+            reduce_only=order.reduce_only,
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit
         )
         logging.info(f"Webhook order placed successfully: {result}")
         return {"status": "success", "data": result}
@@ -184,5 +190,4 @@ async def get_balance():
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
