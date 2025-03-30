@@ -44,6 +44,18 @@ class BybitClient:
         except Exception as e:
             raise Exception(f"Failed to get symbol info: {str(e)}")
 
+    def get_current_price(self, symbol: str) -> float:
+        try:
+            # Uses the ticker endpoint to get the latest price
+            response = self.client.get_tickers(category="linear", symbol=symbol)
+            tickers = response.get("result", {}).get("list", [])
+            if not tickers:
+                raise Exception("No ticker data found")
+            current_price = float(tickers[0]["lastPrice"])
+            return current_price
+        except Exception as e:
+            raise Exception(f"Failed to get current price: {str(e)}")
+
     def place_order(
             self,
             symbol: str,
@@ -56,6 +68,8 @@ class BybitClient:
             reduce_only: bool = False,
             stop_loss: Optional[float] = None,
             take_profit: Optional[float] = None,
+            stop_loss_pct: Optional[float] = None,
+            take_profit_pct: Optional[float] = None,
             is_leverage: Optional[int] = None
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
@@ -81,7 +95,21 @@ class BybitClient:
                     raise ValueError("Limit order requires a price")
                 params["price"] = str(price)
 
-            # Incorporate stop loss and take profit if provided
+            # If percentage values are provided, override the absolute values
+            if stop_loss_pct is not None or take_profit_pct is not None:
+                current_price = self.get_current_price(symbol)
+                if side == "Buy":
+                    if stop_loss_pct is not None:
+                        stop_loss = current_price * (1 - stop_loss_pct)
+                    if take_profit_pct is not None:
+                        take_profit = current_price * (1 + take_profit_pct)
+                else:  # For Sell orders, the logic reverses
+                    if stop_loss_pct is not None:
+                        stop_loss = current_price * (1 + stop_loss_pct)
+                    if take_profit_pct is not None:
+                        take_profit = current_price * (1 - take_profit_pct)
+
+            # Incorporate stop loss and take profit if available
             if stop_loss is not None:
                 params["stopLoss"] = str(stop_loss)
             if take_profit is not None:

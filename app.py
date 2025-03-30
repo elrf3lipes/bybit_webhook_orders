@@ -35,15 +35,18 @@ class OrderRequest(BaseModel):
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
     leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
+    # Absolute values (if provided) are used unless percentage values are given
     stop_loss: Optional[float] = Field(None, description="Stop loss price")
     take_profit: Optional[float] = Field(None, description="Take profit price")
+    # New fields for dynamic calculation based on current market price
+    stop_loss_pct: Optional[float] = Field(None, description="Stop loss percentage (e.g., 0.10 for 10%)")
+    take_profit_pct: Optional[float] = Field(None, description="Take profit percentage (e.g., 0.30 for 30%)")
     # Integration for Unified account spot margin trading
     # 0 (default): spot trading, 1: margin trading (borrow)
     is_leverage: Optional[int] = Field(0, description="Whether to borrow margin in spot trading (0: spot, 1: margin)")
 
     class Config:
         extra = "allow"
-
 
 # Endpoint for direct order placement (for frontends or manual testing)
 @app.post("/order", description="Execute an order")
@@ -61,6 +64,8 @@ async def create_order(order: OrderRequest):
             reduce_only=order.reduce_only,
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
+            stop_loss_pct=order.stop_loss_pct,
+            take_profit_pct=order.take_profit_pct,
             is_leverage=order.is_leverage
         )
         logging.info(f"Order placed successfully: {result}")
@@ -71,7 +76,6 @@ async def create_order(order: OrderRequest):
     except Exception as e:
         logging.error(f"Error placing order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # Webhook endpoint to process TradingView alerts
 @app.post("/webhook", description="Webhook endpoint to execute orders from TradingView")
@@ -95,6 +99,8 @@ async def webhook_order(request: Request):
             reduce_only=order.reduce_only,
             stop_loss=order.stop_loss,
             take_profit=order.take_profit,
+            stop_loss_pct=order.stop_loss_pct,
+            take_profit_pct=order.take_profit_pct,
             is_leverage=order.is_leverage
         )
         logging.info(f"Webhook order placed successfully: {result}")
