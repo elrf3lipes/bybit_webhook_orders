@@ -17,7 +17,6 @@ app = FastAPI(
     version="2.0.0"
 )
 
-
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -26,7 +25,6 @@ async def startup_event():
     except ValueError as e:
         logging.error(f"Configuration error during startup: {e}")
         raise RuntimeError(f"Configuration error: {str(e)}")
-
 
 # Pydantic model for order requests. Extra fields from TradingView alerts are allowed.
 class OrderRequest(BaseModel):
@@ -39,6 +37,9 @@ class OrderRequest(BaseModel):
     reduce_only: bool = Field(False, description="True if only reducing position")
     stop_loss: Optional[float] = Field(None, description="Stop loss price")
     take_profit: Optional[float] = Field(None, description="Take profit price")
+    # Integration for Unified account spot margin trading
+    # 0 (default): spot trading, 1: margin trading (borrow)
+    is_leverage: Optional[int] = Field(0, description="Whether to borrow margin in spot trading (0: spot, 1: margin)")
 
     class Config:
         extra = "allow"
@@ -59,7 +60,8 @@ async def create_order(order: OrderRequest):
             leverage=order.leverage,
             reduce_only=order.reduce_only,
             stop_loss=order.stop_loss,
-            take_profit=order.take_profit
+            take_profit=order.take_profit,
+            is_leverage=order.is_leverage
         )
         logging.info(f"Order placed successfully: {result}")
         return {"status": "success", "data": result}
@@ -92,7 +94,8 @@ async def webhook_order(request: Request):
             leverage=order.leverage,
             reduce_only=order.reduce_only,
             stop_loss=order.stop_loss,
-            take_profit=order.take_profit
+            take_profit=order.take_profit,
+            is_leverage=order.is_leverage
         )
         logging.info(f"Webhook order placed successfully: {result}")
         return {"status": "success", "data": result}

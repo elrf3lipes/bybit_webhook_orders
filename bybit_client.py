@@ -55,7 +55,8 @@ class BybitClient:
             position_side: PositionSide = "Both",
             reduce_only: bool = False,
             stop_loss: Optional[float] = None,
-            take_profit: Optional[float] = None
+            take_profit: Optional[float] = None,
+            is_leverage: Optional[int] = None
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
@@ -85,6 +86,10 @@ class BybitClient:
                 params["stopLoss"] = str(stop_loss)
             if take_profit is not None:
                 params["takeProfit"] = str(take_profit)
+
+            # Integrate isLeverage option if provided (for Unified Account spot trading)
+            if is_leverage is not None:
+                params["isLeverage"] = str(is_leverage)
 
             response = self.client.place_order(**params)
             return response
