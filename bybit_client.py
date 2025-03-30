@@ -8,13 +8,17 @@ PositionSide = Literal["Both"]  # Only 'Both' is supported in Bybit's futures tr
 
 class BybitClient:
     def __init__(self):
-        self.client = HTTP(
-            testnet=settings.TESTNET,
-            api_key=settings.BYBIT_API_KEY,
-            api_secret=settings.BYBIT_API_SECRET,
-            domain=settings.BYBIT_DOMAIN,
-            tld=settings.BYBIT_TLD
-        )
+        kwargs = {
+            "testnet": settings.TESTNET,
+            "api_key": settings.BYBIT_API_KEY,
+            "api_secret": settings.BYBIT_API_SECRET
+        }
+        if settings.BYBIT_DOMAIN:
+            kwargs["domain"] = settings.BYBIT_DOMAIN
+        if settings.BYBIT_TLD:
+            kwargs["tld"] = settings.BYBIT_TLD
+
+        self.client = HTTP(**kwargs)
 
     def set_leverage(self, symbol: str, leverage: int = 1) -> None:
         try:
@@ -25,7 +29,6 @@ class BybitClient:
                 sellLeverage=str(leverage)
             )
         except Exception as e:
-            # Ignore if leverage is already set
             if "leverage not modified" not in str(e).lower():
                 raise Exception(f"Failed to set leverage: {str(e)}")
 
@@ -52,11 +55,12 @@ class BybitClient:
             position_side: PositionSide = "Both",
             reduce_only: bool = False
     ) -> dict:
-        # Get symbol information and validate minimum order quantity
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
         if qty < min_qty:
-            raise ValueError(f"Order quantity ({qty}) is less than minimum allowed quantity ({min_qty}) for {symbol}")
+            raise ValueError(
+                f"Order quantity ({qty}) is less than minimum allowed quantity ({min_qty}) for {symbol}"
+            )
 
         try:
             self.set_leverage(symbol, leverage)
@@ -66,7 +70,7 @@ class BybitClient:
                 "side": side,
                 "orderType": order_type,
                 "qty": str(qty),
-                "positionIdx": 0,  # One-way mode uses 0 for "Both"
+                "positionIdx": 0,
                 "reduceOnly": reduce_only
             }
             if order_type == "Limit":
