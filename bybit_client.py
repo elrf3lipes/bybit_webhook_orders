@@ -70,7 +70,7 @@ class BybitClient:
             take_profit: Optional[float] = None,
             stop_loss_pct: Optional[float] = None,
             take_profit_pct: Optional[float] = None,
-            is_leverage: Optional[int] = None
+            is_leverage: Optional[int] = None  # This field is in the model but not used for linear orders
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
@@ -80,6 +80,7 @@ class BybitClient:
             )
 
         try:
+            # Set the leverage for the symbol (for futures, leverage is set separately)
             self.set_leverage(symbol, leverage)
             params = {
                 "category": "linear",
@@ -115,9 +116,10 @@ class BybitClient:
             if take_profit is not None:
                 params["takeProfit"] = str(take_profit)
 
-            # Integrate isLeverage option if provided (for Unified Account spot trading)
-            if is_leverage is not None:
-                params["isLeverage"] = str(is_leverage)
+            # NOTE: Removed the "isLeverage" parameter since it's not valid for linear orders.
+            # If you plan to support Unified Account spot margin orders, include this conditionally:
+            # if is_leverage is not None and <order category is spot>:
+            #     params["isLeverage"] = str(is_leverage)
 
             response = self.client.place_order(**params)
             return response
