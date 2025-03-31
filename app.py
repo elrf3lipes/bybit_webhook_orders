@@ -31,13 +31,12 @@ async def startup_event():
         raise RuntimeError(f"Configuration error: {str(e)}")
 
 
-# --- Helper function for safe evaluation of simple arithmetic expressions ---
+# --- Helper function to safely evaluate arithmetic expressions ---
 def safe_eval(expr: str) -> float:
     """
     Safely evaluate arithmetic expressions containing only numbers and
     operators +, -, *, /, and **.
     """
-    # Allowed operators mapping
     allowed_operators = {
         ast.Add: op.add,
         ast.Sub: op.sub,
@@ -65,30 +64,32 @@ def safe_eval(expr: str) -> float:
     return eval_node(node)
 
 
-# --- Updated Pydantic Model ---
+# --- Updated Pydantic Model for Order Requests ---
 class OrderRequest(BaseModel):
-    # Use alias so that either "quantity" or "qty" in the payload works
-    quantity: float = Field(..., gt=0, description="Quantity of the trade", alias="qty")
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
     order_type: OrderType = Field(..., description="Order type (Market/Limit)")
+    # Use "quantity" as primary field. (You can also use alias 'qty' if needed.)
+    quantity: float = Field(..., gt=0, description="Quantity of the trade")
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
-    leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
+    # Predefined default leverage: 5x (change here if needed)
+    leverage: int = Field(5, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
     stop_loss: Optional[float] = Field(None, description="Stop loss price")
     take_profit: Optional[float] = Field(None, description="Take profit price")
-    stop_loss_pct: Optional[float] = Field(None, description="Stop loss percentage (e.g., 0.10 for 10%)")
-    take_profit_pct: Optional[float] = Field(None, description="Take profit percentage (e.g., 0.30 for 30%)")
-    # Field from TradingView alerts; not used for linear orders.
+    # Predefined default percentages:
+    # 0.10 means 10% stop loss; 0.30 means 30% take profit.
+    stop_loss_pct: Optional[float] = Field(0.10, description="Stop loss percentage (default 10%)")
+    take_profit_pct: Optional[float] = Field(0.30, description="Take profit percentage (default 30%)")
+    # This field is used for spot margin orders; not applicable for linear orders.
     is_leverage: Optional[int] = Field(0, description="Whether to borrow margin in spot trading (0: spot, 1: margin)")
 
     class Config:
         extra = "allow"
-        allow_population_by_field_name = True  # Allow using alias names
 
     @validator("symbol", pre=True)
     def fix_symbol(cls, v):
-        # Remove trailing ".P" if present (commonly used in auto sell alerts)
+        # Remove trailing ".P" if present (common in auto sell alerts)
         if isinstance(v, str) and v.endswith(".P"):
             return v.replace(".P", "")
         return v
@@ -107,6 +108,7 @@ class OrderRequest(BaseModel):
 
 
 # --- Endpoints ---
+
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
     logging.info(f"Received order request: {order.dict()}")
@@ -169,6 +171,7 @@ async def webhook_order(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- Other endpoints (cancel, position, balance, etc.) remain unchanged ---
 @app.post("/cancel-order", description="Cancel a specific order")
 async def cancel_order(request: OrderRequest):
     logging.info(f"Cancel order request: {request.dict()}")
