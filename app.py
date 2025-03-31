@@ -70,7 +70,7 @@ class OrderRequest(BaseModel):
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
     order_type: OrderType = Field(..., description="Order type (Market/Limit)")
     # Use "quantity" as primary field. (You can also use alias 'qty' if needed.)
-    quantity: float = Field(..., gt=0, description="Quantity of the trade")
+    quantity: float = Field(..., gt=0, description="Quantity of the trade", alias="qty")
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
     # Predefined default leverage: 5x (change here if needed)
     leverage: int = Field(5, ge=1, le=100, description="Leverage (1-100)")
@@ -86,6 +86,7 @@ class OrderRequest(BaseModel):
 
     class Config:
         extra = "allow"
+        allow_population_by_field_name = True  # allows you to use both the field name and its alias
 
     @validator("symbol", pre=True)
     def fix_symbol(cls, v):
