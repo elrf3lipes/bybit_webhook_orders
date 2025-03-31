@@ -1,7 +1,10 @@
 import logging
+import ast
+import operator as op
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Literal, Optional
+
 from bybit_client import BybitClient, OrderType, OrderSide
 from config import settings
 
@@ -17,6 +20,7 @@ app = FastAPI(
     version="2.0.0"
 )
 
+
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -26,35 +30,89 @@ async def startup_event():
         logging.error(f"Configuration error during startup: {e}")
         raise RuntimeError(f"Configuration error: {str(e)}")
 
-# Pydantic model for order requests. Extra fields from TradingView alerts are allowed.
+
+# --- Helper function for safe evaluation of simple arithmetic expressions ---
+def safe_eval(expr: str) -> float:
+    """
+    Safely evaluate arithmetic expressions containing only numbers and
+    operators +, -, *, /, and **.
+    """
+    # Allowed operators mapping
+    allowed_operators = {
+        ast.Add: op.add,
+        ast.Sub: op.sub,
+        ast.Mult: op.mul,
+        ast.Div: op.truediv,
+        ast.Pow: op.pow,
+        ast.USub: op.neg
+    }
+
+    def eval_node(node):
+        if isinstance(node, ast.Num):  # <number>
+            return node.n
+        elif isinstance(node, ast.BinOp):  # <left> <operator> <right>
+            if type(node.op) not in allowed_operators:
+                raise ValueError("Unsupported operator")
+            return allowed_operators[type(node.op)](eval_node(node.left), eval_node(node.right))
+        elif isinstance(node, ast.UnaryOp):  # - <operand>
+            if type(node.op) not in allowed_operators:
+                raise ValueError("Unsupported unary operator")
+            return allowed_operators[type(node.op)](eval_node(node.operand))
+        else:
+            raise ValueError("Unsupported expression")
+
+    node = ast.parse(expr, mode='eval').body
+    return eval_node(node)
+
+
+# --- Updated Pydantic Model ---
 class OrderRequest(BaseModel):
+    # Use alias so that either "quantity" or "qty" in the payload works
+    quantity: float = Field(..., gt=0, description="Quantity of the trade", alias="qty")
     symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
     side: OrderSide = Field(..., description="Order side (Buy/Sell)")
     order_type: OrderType = Field(..., description="Order type (Market/Limit)")
-    quantity: float = Field(..., gt=0, description="Quantity of the trade")
     price: Optional[float] = Field(None, gt=0, description="Limit price (required only for Limit orders)")
     leverage: int = Field(1, ge=1, le=100, description="Leverage (1-100)")
     reduce_only: bool = Field(False, description="True if only reducing position")
-    # Absolute values (if provided) are used unless percentage values are given
     stop_loss: Optional[float] = Field(None, description="Stop loss price")
     take_profit: Optional[float] = Field(None, description="Take profit price")
-    # New fields for dynamic calculation based on current market price
     stop_loss_pct: Optional[float] = Field(None, description="Stop loss percentage (e.g., 0.10 for 10%)")
     take_profit_pct: Optional[float] = Field(None, description="Take profit percentage (e.g., 0.30 for 30%)")
-    # Integration for Unified account spot margin trading
-    # 0 (default): spot trading, 1: margin trading (borrow)
+    # Field from TradingView alerts; not used for linear orders.
     is_leverage: Optional[int] = Field(0, description="Whether to borrow margin in spot trading (0: spot, 1: margin)")
 
     class Config:
         extra = "allow"
+        allow_population_by_field_name = True  # Allow using alias names
 
-# Endpoint for direct order placement (for frontends or manual testing)
+    @validator("symbol", pre=True)
+    def fix_symbol(cls, v):
+        # Remove trailing ".P" if present (commonly used in auto sell alerts)
+        if isinstance(v, str) and v.endswith(".P"):
+            return v.replace(".P", "")
+        return v
+
+    @validator("stop_loss", "take_profit", pre=True)
+    def parse_numeric(cls, v):
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except ValueError:
+                try:
+                    return safe_eval(v)
+                except Exception:
+                    raise ValueError(f"Invalid expression for value: {v}")
+        return v
+
+
+# --- Endpoints ---
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
     logging.info(f"Received order request: {order.dict()}")
     try:
-        client = BybitClient()
-        result = client.place_order(
+        client_obj = BybitClient()
+        result = client_obj.place_order(
             symbol=order.symbol,
             side=order.side,
             order_type=order.order_type,
@@ -77,19 +135,17 @@ async def create_order(order: OrderRequest):
         logging.error(f"Error placing order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Webhook endpoint to process TradingView alerts
+
 @app.post("/webhook", description="Webhook endpoint to execute orders from TradingView")
 async def webhook_order(request: Request):
     raw_body = await request.body()
     decoded_body = raw_body.decode("utf-8")
     logging.info(f"Raw webhook payload: {decoded_body}")
-
     try:
         order = OrderRequest.parse_raw(raw_body)
         logging.info(f"Parsed webhook order: {order.dict()}")
-
-        client = BybitClient()
-        result = client.place_order(
+        client_obj = BybitClient()
+        result = client_obj.place_order(
             symbol=order.symbol,
             side=order.side,
             order_type=order.order_type,
@@ -113,28 +169,12 @@ async def webhook_order(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Request model for canceling a specific order
-class CancelOrderRequest(BaseModel):
-    symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
-    order_id: str = Field(..., description="ID of the order to cancel")
-
-
-# Request model for canceling all orders
-class CancelAllOrdersRequest(BaseModel):
-    symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
-
-
-# Request model for fetching position or closing a position
-class PositionRequest(BaseModel):
-    symbol: str = Field(..., description="Trading pair (e.g., BTCUSDT)")
-
-
 @app.post("/cancel-order", description="Cancel a specific order")
-async def cancel_order(request: CancelOrderRequest):
+async def cancel_order(request: OrderRequest):
     logging.info(f"Cancel order request: {request.dict()}")
     try:
-        client = BybitClient()
-        result = client.cancel_order(order_id=request.order_id, symbol=request.symbol)
+        client_obj = BybitClient()
+        result = client_obj.cancel_order(order_id=request.symbol, symbol=request.symbol)
         logging.info(f"Order cancelled: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
@@ -143,11 +183,11 @@ async def cancel_order(request: CancelOrderRequest):
 
 
 @app.post("/cancel-all-orders", description="Cancel all orders for the specified symbol")
-async def cancel_all_orders(request: CancelAllOrdersRequest):
+async def cancel_all_orders(request: OrderRequest):
     logging.info(f"Cancel all orders request: {request.dict()}")
     try:
-        client = BybitClient()
-        result = client.cancel_all_orders(symbol=request.symbol)
+        client_obj = BybitClient()
+        result = client_obj.cancel_all_orders(symbol=request.symbol)
         logging.info(f"All orders cancelled for {request.symbol}: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
@@ -159,8 +199,8 @@ async def cancel_all_orders(request: CancelAllOrdersRequest):
 async def get_position(symbol: str):
     logging.info(f"Get position request for symbol: {symbol}")
     try:
-        client = BybitClient()
-        result = client.get_position(symbol)
+        client_obj = BybitClient()
+        result = client_obj.get_position(symbol)
         logging.info(f"Position for {symbol}: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
@@ -169,11 +209,11 @@ async def get_position(symbol: str):
 
 
 @app.post("/close-position", description="Close a position")
-async def close_position(request: PositionRequest):
+async def close_position(request: OrderRequest):
     logging.info(f"Close position request for symbol: {request.symbol}")
     try:
-        client = BybitClient()
-        result = client.close_position(request.symbol)
+        client_obj = BybitClient()
+        result = client_obj.close_position(request.symbol)
         logging.info(f"Position closed for {request.symbol}: {result}")
         return {"status": "success", "data": result}
     except ValueError as e:
@@ -188,8 +228,8 @@ async def close_position(request: PositionRequest):
 async def get_balance():
     logging.info("Get wallet balance request received.")
     try:
-        client = BybitClient()
-        result = client.get_wallet_balance()
+        client_obj = BybitClient()
+        result = client_obj.get_wallet_balance()
         logging.info(f"Wallet balance: {result}")
         return {"status": "success", "data": result}
     except Exception as e:
@@ -199,4 +239,5 @@ async def get_balance():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
