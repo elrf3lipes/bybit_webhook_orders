@@ -46,7 +46,6 @@ class BybitClient:
 
     def get_current_price(self, symbol: str) -> float:
         try:
-            # Uses the ticker endpoint to get the latest price
             response = self.client.get_tickers(category="linear", symbol=symbol)
             tickers = response.get("result", {}).get("list", [])
             if not tickers:
@@ -57,20 +56,20 @@ class BybitClient:
             raise Exception(f"Failed to get current price: {str(e)}")
 
     def place_order(
-            self,
-            symbol: str,
-            side: OrderSide,
-            order_type: OrderType,
-            qty: float,
-            leverage: int = 1,
-            price: Optional[float] = None,
-            position_side: PositionSide = "Both",
-            reduce_only: bool = False,
-            stop_loss: Optional[float] = None,
-            take_profit: Optional[float] = None,
-            stop_loss_pct: Optional[float] = None,
-            take_profit_pct: Optional[float] = None,
-            is_leverage: Optional[int] = None  # This field is in the model but not used for linear orders
+        self,
+        symbol: str,
+        side: OrderSide,
+        order_type: OrderType,
+        qty: float,
+        leverage: int = 1,
+        price: Optional[float] = None,
+        position_side: PositionSide = "Both",
+        reduce_only: bool = False,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+        stop_loss_pct: Optional[float] = None,
+        take_profit_pct: Optional[float] = None,
+        is_leverage: Optional[int] = None  # This field is in the model but not used for linear orders
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
@@ -96,30 +95,26 @@ class BybitClient:
                     raise ValueError("Limit order requires a price")
                 params["price"] = str(price)
 
-            # If percentage values are provided, override the absolute values
+            # If percentage values are provided, compute TP/SL.
             if stop_loss_pct is not None or take_profit_pct is not None:
-                current_price = self.get_current_price(symbol)
+                # Use the provided price as base if available; otherwise, fetch the current price.
+                base_price = price if price is not None else self.get_current_price(symbol)
                 if side == "Buy":
                     if stop_loss_pct is not None:
-                        stop_loss = current_price * (1 - stop_loss_pct)
+                        stop_loss = base_price * (1 - stop_loss_pct)
                     if take_profit_pct is not None:
-                        take_profit = current_price * (1 + take_profit_pct)
+                        take_profit = base_price * (1 + take_profit_pct)
                 else:  # For Sell orders, the logic reverses
                     if stop_loss_pct is not None:
-                        stop_loss = current_price * (1 + stop_loss_pct)
+                        stop_loss = base_price * (1 + stop_loss_pct)
                     if take_profit_pct is not None:
-                        take_profit = current_price * (1 - take_profit_pct)
+                        take_profit = base_price * (1 - take_profit_pct)
 
             # Incorporate stop loss and take profit if available
             if stop_loss is not None:
                 params["stopLoss"] = str(stop_loss)
             if take_profit is not None:
                 params["takeProfit"] = str(take_profit)
-
-            # NOTE: Removed the "isLeverage" parameter since it's not valid for linear orders.
-            # If you plan to support Unified Account spot margin orders, include this conditionally:
-            # if is_leverage is not None and <order category is spot>:
-            #     params["isLeverage"] = str(is_leverage)
 
             response = self.client.place_order(**params)
             return response

@@ -1,8 +1,7 @@
 import logging
-
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, root_validator, validator
-from typing import Literal, Optional
+from typing import Optional
 
 from bybit_client import BybitClient, OrderType, OrderSide
 from config import settings
@@ -55,7 +54,7 @@ class OrderRequest(BaseModel):
         If only 'qty' is provided, assign it to 'quantity'.
         """
         if "qty" in values and "quantity" not in values:
-            values["quantity"] = values["qty"]
+            values["quantity"] = float(values["qty"])
         return values
 
     @validator("price", pre=True, always=True)
@@ -71,8 +70,6 @@ class OrderRequest(BaseModel):
                 return float(v)
             except ValueError:
                 if v.strip() == "{{close}}":
-                    # In this example, we choose to ignore the placeholder.
-                    # Alternatively, you could substitute with a current market price.
                     return None
                 raise ValueError("price must be a valid number")
         return v
@@ -88,11 +85,45 @@ class OrderRequest(BaseModel):
                 raise ValueError("Percentage fields must be valid numbers")
         return v
 
+def compute_tp_sl_from_price(base_price: float, side: str, sl_pct: Optional[float], tp_pct: Optional[float]):
+    """
+    Calculate stop loss and take profit prices from the given base price.
+    For Buy orders:
+        SL = base_price * (1 - sl_pct)
+        TP = base_price * (1 + tp_pct)
+    For Sell orders:
+        SL = base_price * (1 + sl_pct)
+        TP = base_price * (1 - tp_pct)
+    """
+    stop_loss = None
+    take_profit = None
+    if side.lower() == "buy":
+        if sl_pct is not None:
+            stop_loss = base_price * (1 - sl_pct)
+        if tp_pct is not None:
+            take_profit = base_price * (1 + tp_pct)
+    elif side.lower() == "sell":
+        if sl_pct is not None:
+            stop_loss = base_price * (1 + sl_pct)
+        if tp_pct is not None:
+            take_profit = base_price * (1 - tp_pct)
+    return stop_loss, take_profit
+
 # Endpoint for direct order placement (for frontends or manual testing)
 @app.post("/order", description="Execute an order")
 async def create_order(order: OrderRequest):
     logging.info(f"Received order request: {order.dict()}")
     try:
+        # If a base price is provided and TP/SL percentages are given but TP/SL are not set,
+        # compute them from the provided price.
+        if order.price is not None and (order.stop_loss is None or order.take_profit is None):
+            if order.stop_loss_pct is not None or order.take_profit_pct is not None:
+                computed_sl, computed_tp = compute_tp_sl_from_price(order.price, order.side, order.stop_loss_pct, order.take_profit_pct)
+                if order.stop_loss is None:
+                    order.stop_loss = computed_sl
+                if order.take_profit is None:
+                    order.take_profit = computed_tp
+
         client = BybitClient()
         result = client.place_order(
             symbol=order.symbol,
@@ -126,6 +157,16 @@ async def webhook_order(request: Request):
     try:
         order = OrderRequest.parse_raw(raw_body)
         logging.info(f"Parsed webhook order: {order.dict()}")
+
+        # Compute TP/SL if price and percentage values are provided but absolute TP/SL are missing.
+        if order.price is not None and (order.stop_loss is None or order.take_profit is None):
+            if order.stop_loss_pct is not None or order.take_profit_pct is not None:
+                computed_sl, computed_tp = compute_tp_sl_from_price(order.price, order.side, order.stop_loss_pct, order.take_profit_pct)
+                if order.stop_loss is None:
+                    order.stop_loss = computed_sl
+                if order.take_profit is None:
+                    order.take_profit = computed_tp
+
         client = BybitClient()
         result = client.place_order(
             symbol=order.symbol,
