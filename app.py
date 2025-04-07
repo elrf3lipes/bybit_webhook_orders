@@ -130,7 +130,7 @@ async def create_order(order: OrderRequest):
             side=order.side,
             order_type=order.order_type,
             qty=order.quantity,
-            price=order.price,
+            price=None if order.order_type.lower() == "market" else order.price,
             leverage=order.leverage,
             reduce_only=order.reduce_only,
             stop_loss=order.stop_loss,

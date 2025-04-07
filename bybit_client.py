@@ -6,6 +6,7 @@ OrderType = Literal["Market", "Limit"]
 OrderSide = Literal["Buy", "Sell"]
 PositionSide = Literal["Both"]  # Only 'Both' is supported in Bybit's futures trading
 
+
 class BybitClient:
     def __init__(self):
         kwargs = {
@@ -56,20 +57,20 @@ class BybitClient:
             raise Exception(f"Failed to get current price: {str(e)}")
 
     def place_order(
-        self,
-        symbol: str,
-        side: OrderSide,
-        order_type: OrderType,
-        qty: float,
-        leverage: int = 1,
-        price: Optional[float] = None,
-        position_side: PositionSide = "Both",
-        reduce_only: bool = False,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
-        stop_loss_pct: Optional[float] = None,
-        take_profit_pct: Optional[float] = None,
-        is_leverage: Optional[int] = None  # This field is in the model but not used for linear orders
+            self,
+            symbol: str,
+            side: OrderSide,
+            order_type: OrderType,
+            qty: float,
+            leverage: int = 1,
+            price: Optional[float] = None,
+            position_side: PositionSide = "Both",
+            reduce_only: bool = False,
+            stop_loss: Optional[float] = None,
+            take_profit: Optional[float] = None,
+            stop_loss_pct: Optional[float] = None,
+            take_profit_pct: Optional[float] = None,
+            is_leverage: Optional[int] = None
     ) -> dict:
         symbol_info = self.get_symbol_info(symbol)
         min_qty = float(symbol_info.get("minOrderQty", "0"))
@@ -79,7 +80,6 @@ class BybitClient:
             )
 
         try:
-            # Set the leverage for the symbol (for futures, leverage is set separately)
             self.set_leverage(symbol, leverage)
             params = {
                 "category": "linear",
@@ -90,27 +90,24 @@ class BybitClient:
                 "positionIdx": 0,
                 "reduceOnly": reduce_only
             }
-            if order_type == "Limit":
+            if order_type.lower() == "limit":
                 if price is None:
                     raise ValueError("Limit order requires a price")
                 params["price"] = str(price)
-
-            # If percentage values are provided, compute TP/SL.
+            # For market orders, ignore any provided price.
+            # Compute stop loss and take profit if percentages are provided.
             if stop_loss_pct is not None or take_profit_pct is not None:
-                # Use the provided price as base if available; otherwise, fetch the current price.
                 base_price = price if price is not None else self.get_current_price(symbol)
-                if side == "Buy":
+                if side.lower() == "buy":
                     if stop_loss_pct is not None:
                         stop_loss = base_price * (1 - stop_loss_pct)
                     if take_profit_pct is not None:
                         take_profit = base_price * (1 + take_profit_pct)
-                else:  # For Sell orders, the logic reverses
+                else:
                     if stop_loss_pct is not None:
                         stop_loss = base_price * (1 + stop_loss_pct)
                     if take_profit_pct is not None:
                         take_profit = base_price * (1 - take_profit_pct)
-
-            # Incorporate stop loss and take profit if available
             if stop_loss is not None:
                 params["stopLoss"] = str(stop_loss)
             if take_profit is not None:
